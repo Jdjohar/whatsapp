@@ -23,6 +23,10 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { handleCallWebhookChange } from '@/lib/whatsapp/call-webhook'
+import {
+  handleCoexistenceWebhookChange,
+  isCoexistenceWebhookChange,
+} from '@/lib/whatsapp/coexistence-webhook'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -304,6 +308,15 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 
       const value = change.value
 
+      // Handle WhatsApp Coexistence message echoes (`smb_message_echoes`)
+      if (isCoexistenceWebhookChange(change)) {
+        await handleCoexistenceWebhookChange(
+          change as any,
+          supabaseAdmin(),
+        )
+        continue
+      }
+
       // Handle status updates
       if (value.statuses) {
         for (const status of value.statuses) {
@@ -358,6 +371,20 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
+
+        // Guard against business display number in inbound messages (Coexistence)
+        const businessPhone = value.metadata?.display_phone_number
+        if (
+          businessPhone &&
+          message.from &&
+          normalizePhone(message.from) === normalizePhone(businessPhone)
+        ) {
+          console.info(
+            '[webhook] message from business display number received in messages loop; skipping inbound dispatch:',
+            message.id
+          )
+          continue
+        }
 
         await processMessage(
           message,

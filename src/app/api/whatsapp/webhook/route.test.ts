@@ -1012,3 +1012,48 @@ describe('status webhook: failed statuses keep Meta\'s reason (#535)', () => {
     expect(h.state.recipientUpdates[0]).not.toHaveProperty('error_code')
   })
 })
+
+
+describe('inbound webhook: coexistence message echoes', () => {
+  it('skips inbound processing if a message in messages loop originated from the business display phone number', async () => {
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: {
+                  phone_number_id: 'pn-1',
+                  display_phone_number: '15551230000',
+                },
+                contacts: LEGACY_CONTACTS,
+                messages: [
+                  {
+                    id: 'wamid.BIZ1',
+                    from: '15551230000',
+                    timestamp: '1700000000',
+                    type: 'text',
+                    text: { body: 'Message from business app' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+
+    const req = {
+      text: async () => JSON.stringify(body),
+      headers: { get: () => 'sha256=stub' },
+    } as unknown as Request
+
+    const res = await POST(req)
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect((res as any).init?.status ?? (res as any).status).toBe(200)
+    expect(h.state.upsertCalls).toHaveLength(0)
+    expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
+  })
+})
