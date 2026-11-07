@@ -5456,6 +5456,7 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_calls_started_at ON whatsapp_calls(start
 
 -- Enable Row Level Security
 ALTER TABLE whatsapp_calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_calls REPLICA IDENTITY FULL;
 
 -- Drop existing policies if re-running
 DROP POLICY IF EXISTS whatsapp_calls_select ON whatsapp_calls;

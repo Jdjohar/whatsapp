@@ -109,6 +109,39 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!accountId) return
 
+    // Actively check for any current ringing call on mount or reconnect
+    const checkActiveRingingCall = async () => {
+      try {
+        const since = new Date(Date.now() - 45000).toISOString()
+        const { data: activeRinging } = await supabase
+          .from('whatsapp_calls')
+          .select('*, contact:contacts(name)')
+          .eq('account_id', accountId)
+          .eq('direction', 'inbound')
+          .eq('status', 'ringing')
+          .gte('started_at', since)
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (activeRinging && !activeCall) {
+          const callerName = (activeRinging.contact as { name?: string })?.name || activeRinging.from_phone
+          setIncomingCall({
+            callId: activeRinging.call_id,
+            contactId: activeRinging.contact_id,
+            callerName,
+            callerPhone: activeRinging.from_phone,
+            sdpOffer: activeRinging.sdp_offer,
+          })
+          callSound.startIncomingRingtone()
+        }
+      } catch (err) {
+        console.warn('[calling] checkActiveRingingCall failed:', err)
+      }
+    }
+
+    void checkActiveRingingCall()
+
     const channel = supabase
       .channel(`calls-realtime-${accountId}`)
       .on(
@@ -117,12 +150,13 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
           event: '*',
           schema: 'public',
           table: 'whatsapp_calls',
-          filter: `account_id=eq.${accountId}`,
         },
         async (payload) => {
-          const row = payload.new as WhatsAppCall
+          const row = (payload.new || payload.old) as WhatsAppCall
 
           if (!row || !row.call_id) return
+          // Filter to this account
+          if (row.account_id && row.account_id !== accountId) return
 
           // 1. New or pending Incoming Call
           if (row.direction === 'inbound' && row.status === 'ringing') {
@@ -145,6 +179,17 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
               sdpOffer: row.sdp_offer,
             })
             callSound.startIncomingRingtone()
+
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              try {
+                new Notification('Incoming WhatsApp Call', {
+                  body: `${callerName} (${row.from_phone}) is calling...`,
+                  icon: '/favicon.ico',
+                })
+              } catch {
+                // Ignore notification error
+              }
+            }
           }
 
           // 2. Outbound call connected or accepted
@@ -174,12 +219,16 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          void checkActiveRingingCall()
+        }
+      })
 
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [accountId, supabase, cleanupCallResources])
+  }, [accountId, supabase, cleanupCallResources, activeCall])
 
   // Call duration counter
   useEffect(() => {
