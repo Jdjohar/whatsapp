@@ -45,6 +45,7 @@ interface CallingContextValue {
   acceptIncomingCall: () => Promise<void>
   rejectIncomingCall: () => Promise<void>
   startOutboundCall: (phone: string, contactId?: string, contactName?: string) => Promise<void>
+  requestCallPermission: (phone: string, contactId?: string, text?: string) => Promise<boolean>
   endCall: () => Promise<void>
   toggleMute: () => void
 }
@@ -396,6 +397,21 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
 
         const data = await res.json()
         if (!res.ok) {
+          if (data.needsPermission || data.error?.toLowerCase().includes('permission')) {
+            toast.error('Customer call permission required', {
+              description: 'WhatsApp requires recipient approval before businesses can place calls.',
+              action: {
+                label: 'Send Request',
+                onClick: () => {
+                  void requestCallPermission(phone, contactId)
+                },
+              },
+              duration: 10000,
+            })
+            cleanupCallResources()
+            setActiveCall(null)
+            return
+          }
           throw new Error(data.error || 'Failed to initiate WhatsApp call')
         }
 
@@ -408,7 +424,38 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
         toast.error(err instanceof Error ? err.message : 'Could not start call')
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeCall, cleanupCallResources]
+  )
+
+  // Request call permission from recipient
+  const requestCallPermission = useCallback(
+    async (phone: string, contactId?: string, text?: string) => {
+      try {
+        const res = await fetch('/api/whatsapp/calls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'request_permission',
+            to: phone,
+            contactId,
+            text,
+          }),
+        })
+
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to send call permission request')
+        }
+
+        toast.success('Call permission request sent to customer on WhatsApp!')
+        return true
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not send permission request')
+        return false
+      }
+    },
+    []
   )
 
   // End active call
@@ -452,6 +499,7 @@ export function CallingProvider({ children }: { children: React.ReactNode }) {
         acceptIncomingCall,
         rejectIncomingCall,
         startOutboundCall,
+        requestCallPermission,
         endCall,
         toggleMute,
       }}

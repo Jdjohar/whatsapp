@@ -74,15 +74,85 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const { action, callId, sdp, to, contactId } = body as {
-      action: 'initiate' | 'accept' | 'pre_accept' | 'reject' | 'terminate'
+      action: 'initiate' | 'accept' | 'pre_accept' | 'reject' | 'terminate' | 'request_permission'
       callId?: string
       sdp?: string
       to?: string
       contactId?: string
+      text?: string
     }
 
     if (!action) {
       return NextResponse.json({ error: 'Action is required.' }, { status: 400 })
+    }
+
+    // ── 0. SEND CALL PERMISSION REQUEST ────────────────────────
+    if (action === 'request_permission') {
+      if (!to) {
+        return NextResponse.json({ error: 'Recipient phone ("to") is required.' }, { status: 400 })
+      }
+
+      const promptText = (body as { text?: string }).text || 'ਕੀ ਅਸੀਂ ਤੁਹਾਡੇ ਨਾਲ ਕਾਲ ਤੇ ਗੱਲ ਕਰ ਸਕਦੇ ਹਾਂ? (May we call you?)'
+
+      const metaRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'interactive',
+          interactive: {
+            type: 'call_permission_request',
+            action: { name: 'call_permission_request' },
+            body: { text: promptText },
+          },
+        }),
+      })
+
+      if (!metaRes.ok) {
+        const errData = await metaRes.json().catch(() => ({}))
+        const errorMsg =
+          (errData as { error?: { message?: string } })?.error?.message ||
+          'Failed to send call permission request'
+        return NextResponse.json({ error: errorMsg }, { status: 400 })
+      }
+
+      const metaData = await metaRes.json()
+
+      // Also record message in conversation thread
+      if (contactId) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('account_id', accountId)
+          .eq('contact_id', contactId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (conv) {
+          await supabase.from('messages').insert({
+            conversation_id: conv.id,
+            sender_type: 'agent',
+            content_type: 'text',
+            content_text: `📩 Call permission request sent: "${promptText}"`,
+            status: 'delivered',
+          })
+          await supabase
+            .from('conversations')
+            .update({
+              last_message_text: `📩 Call permission request sent`,
+              last_message_at: new Date().toISOString(),
+            })
+            .eq('id', conv.id)
+        }
+      }
+
+      return NextResponse.json({ success: true, data: metaData })
     }
 
     // ── 1. INITIATE OUTBOUND CALL ──────────────────────────────
@@ -94,15 +164,31 @@ export async function POST(request: Request) {
         )
       }
 
-      const metaResult = await initiateCall({
-        phoneNumberId,
-        accessToken,
-        to,
-        session: {
-          sdp_type: 'offer',
-          sdp,
-        },
-      })
+      let metaResult
+      try {
+        metaResult = await initiateCall({
+          phoneNumberId,
+          accessToken,
+          to,
+          session: {
+            sdp_type: 'offer',
+            sdp,
+          },
+        })
+      } catch (callErr) {
+        const errMsg = (callErr as Error)?.message || ''
+        if (errMsg.includes('call permission') || errMsg.includes('138006')) {
+          return NextResponse.json(
+            {
+              error:
+                'No approved call permission from recipient. Please send a Call Permission Request first.',
+              needsPermission: true,
+            },
+            { status: 403 }
+          )
+        }
+        throw callErr
+      }
 
       const newCallId = metaResult.callId
 

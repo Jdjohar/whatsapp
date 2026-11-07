@@ -1159,6 +1159,18 @@ async function parseMessageContent(
       return { ...empty, contentText: message.reaction?.emoji || null }
 
     case 'interactive': {
+      // Call permission reply from customer (tapped Accept / Decline on WhatsApp)
+      const callPerm = (message.interactive as { call_permission_reply?: { response?: string } })?.call_permission_reply
+      if (callPerm) {
+        const isAccepted = callPerm.response === 'accept'
+        return {
+          ...empty,
+          contentText: isAccepted
+            ? '✅ Customer granted call permission. You can now call them!'
+            : '❌ Customer declined call permission.',
+          interactiveReplyId: callPerm.response || 'call_permission',
+        }
+      }
       // The customer tapped a reply button or a list row on a message
       // we previously sent. Meta delivers `interactive.button_reply` for
       // 3-button messages and `interactive.list_reply` for list messages.
