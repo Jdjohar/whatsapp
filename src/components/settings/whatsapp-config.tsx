@@ -560,6 +560,44 @@ export function WhatsAppConfig() {
     }
   }
 
+  async function handleProcessCoexAuth(response: any) {
+    if (response.authResponse?.code) {
+      const code = response.authResponse.code;
+      const loadingToast = toast.loading('Connecting WhatsApp Business App (Coexistence)...');
+      try {
+        const res = await fetch('/api/whatsapp/embedded-signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            phone_number_id: phoneNumberId || undefined,
+            waba_id: wabaId || undefined,
+          }),
+        });
+        const json = await res.json();
+        toast.dismiss(loadingToast);
+        if (!res.ok || json.error) {
+          toast.error(json.error || 'Failed to complete connection');
+        } else {
+          toast.success('WhatsApp Business App (Coexistence) connected successfully!');
+          if (json.phone_number_id) setPhoneNumberId(json.phone_number_id);
+          if (json.waba_id) setWabaId(json.waba_id);
+          if (accountId) await fetchConfig(accountId);
+        }
+      } catch (err) {
+        toast.dismiss(loadingToast);
+        toast.error(err instanceof Error ? err.message : 'Connection failed');
+      } finally {
+        setCoexLoading(false);
+      }
+    } else {
+      setCoexLoading(false);
+      if (response?.status === 'unknown') {
+        toast.info('Login cancelled or popup closed.');
+      }
+    }
+  }
+
   async function handleLaunchCoexistenceSignup() {
     const FB = (window as any).FB;
     if (!FB) {
@@ -592,43 +630,9 @@ export function WhatsAppConfig() {
       }
 
       FB.login(
-        async (response: any) => {
+        function (response: any) {
           clearTimeout(safetyTimer);
-          if (response.authResponse?.code) {
-            const code = response.authResponse.code;
-            const loadingToast = toast.loading('Connecting WhatsApp Business App (Coexistence)...');
-            try {
-              const res = await fetch('/api/whatsapp/embedded-signup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code,
-                  phone_number_id: phoneNumberId || undefined,
-                  waba_id: wabaId || undefined,
-                }),
-              });
-              const json = await res.json();
-              toast.dismiss(loadingToast);
-              if (!res.ok || json.error) {
-                toast.error(json.error || 'Failed to complete connection');
-              } else {
-                toast.success('WhatsApp Business App (Coexistence) connected successfully!');
-                if (json.phone_number_id) setPhoneNumberId(json.phone_number_id);
-                if (json.waba_id) setWabaId(json.waba_id);
-                if (accountId) await fetchConfig(accountId);
-              }
-            } catch (err) {
-              toast.dismiss(loadingToast);
-              toast.error(err instanceof Error ? err.message : 'Connection failed');
-            } finally {
-              setCoexLoading(false);
-            }
-          } else {
-            setCoexLoading(false);
-            if (response.status === 'unknown') {
-              toast.info('Login cancelled or popup closed.');
-            }
-          }
+          void handleProcessCoexAuth(response);
         },
         loginParams
       );
