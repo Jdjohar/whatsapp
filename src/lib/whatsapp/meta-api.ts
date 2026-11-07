@@ -1303,7 +1303,8 @@ export async function initiateCall(
 
   const payload: Record<string, unknown> = {
     messaging_product: 'whatsapp',
-    ...recipientFields(to),
+    to,
+    action: 'connect',
     session,
   }
 

@@ -35,12 +35,18 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('[calls GET] query error:', error)
+      // Return empty array gracefully if table is not yet migrated
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
+        return NextResponse.json({ calls: [], warning: 'whatsapp_calls table not yet created. Run migration 043.' })
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ calls: calls ?? [] })
   } catch (err) {
-    return toErrorResponse(err)
+    console.error('[calls GET] error:', err)
+    const message = (err as Error)?.message || 'Internal server error'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
@@ -115,7 +121,7 @@ export async function POST(request: Request) {
           started_at: new Date().toISOString(),
         })
         .select('*')
-        .single()
+        .maybeSingle()
 
       if (insertError) {
         console.warn('[calls POST] Failed to save outbound call record:', insertError)
@@ -198,6 +204,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, action, callId })
   } catch (err) {
-    return toErrorResponse(err)
+    console.error('[calls POST] error:', err)
+    const message = (err as Error)?.message || 'Internal server error'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
