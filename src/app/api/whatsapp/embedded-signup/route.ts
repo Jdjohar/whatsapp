@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const appId = process.env.NEXT_PUBLIC_META_APP_ID || '846424185197562'
-    const appSecret = process.env.META_APP_SECRET
+    const appSecret = process.env.META_APP_SECRET || 'd72fd7462816fe9ebd80627c8c45478b'
 
     if (!appSecret) {
       return NextResponse.json(
