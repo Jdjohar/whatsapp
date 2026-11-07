@@ -134,7 +134,7 @@ export function WhatsAppConfig() {
     subscribed_apps_at?: string | null;
   };
   const [coexLoading, setCoexLoading] = useState(false);
-  const [configId, setConfigId] = useState('');
+  const [configId, setConfigId] = useState(process.env.NEXT_PUBLIC_META_CONFIG_ID || '1823329985668273');
   const [showAdvancedCoex, setShowAdvancedCoex] = useState(false);
 
   useEffect(() => {
