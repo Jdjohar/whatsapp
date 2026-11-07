@@ -128,18 +128,54 @@ async function processCallSignal(
   // Check if call row already exists
   const { data: existingCall } = await db
     .from('whatsapp_calls')
-    .select('id, status')
+    .select('id, status, answered_at, contact_id, direction')
     .eq('call_id', callId)
     .maybeSingle()
 
+  const rawEvent = (call.event || '').toLowerCase()
+
   if (existingCall) {
-    // Update SDP offer or state if newly provided
     const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if (sdpOffer) updatePayload.sdp_offer = sdpOffer
-    if (call.event === 'connect' && existingCall.status === 'ringing') {
+
+    if (rawEvent === 'connect' && existingCall.status === 'ringing') {
       updatePayload.status = 'accepted'
       updatePayload.answered_at = new Date().toISOString()
+    } else if (rawEvent === 'terminate' || rawEvent === 'hangup' || rawEvent === 'ended' || rawEvent === 'completed') {
+      const now = new Date()
+      const isAnswered = Boolean(existingCall.answered_at || existingCall.status === 'accepted')
+      const mappedStatus = isAnswered ? 'terminated' : 'missed'
+      updatePayload.status = mappedStatus
+      updatePayload.ended_at = now.toISOString()
+
+      let duration = (call as { duration?: number }).duration || 0
+      if (!duration && existingCall.answered_at) {
+        duration = Math.max(0, Math.round((now.getTime() - new Date(existingCall.answered_at).getTime()) / 1000))
+      }
+      updatePayload.duration_seconds = duration
+
+      await recordCallInConversation({
+        db,
+        accountId,
+        contactId: existingCall.contact_id || contactId,
+        status: mappedStatus,
+        durationSeconds: duration,
+        direction: (existingCall.direction || direction) as 'inbound' | 'outbound',
+      })
+    } else if (rawEvent === 'reject' || rawEvent === 'declined') {
+      updatePayload.status = 'rejected'
+      updatePayload.ended_at = new Date().toISOString()
+
+      await recordCallInConversation({
+        db,
+        accountId,
+        contactId: existingCall.contact_id || contactId,
+        status: 'rejected',
+        durationSeconds: 0,
+        direction: (existingCall.direction || direction) as 'inbound' | 'outbound',
+      })
     }
+
     await db.from('whatsapp_calls').update(updatePayload).eq('id', existingCall.id)
   } else {
     // Insert new incoming call
@@ -167,7 +203,7 @@ async function processCallStatusUpdate(
 
   const { data: callRow } = await db
     .from('whatsapp_calls')
-    .select('id, started_at, answered_at, status')
+    .select('id, started_at, answered_at, status, contact_id, direction')
     .eq('call_id', callId)
     .eq('account_id', accountId)
     .maybeSingle()
@@ -176,6 +212,7 @@ async function processCallStatusUpdate(
 
   const now = new Date()
   let mappedStatus = callRow.status
+  let duration = 0
   const updatePayload: Record<string, unknown> = {
     updated_at: now.toISOString(),
   }
@@ -195,7 +232,8 @@ async function processCallStatusUpdate(
     updatePayload.ended_at = now.toISOString()
     if (callRow.answered_at) {
       const answeredTime = new Date(callRow.answered_at).getTime()
-      updatePayload.duration_seconds = Math.max(0, Math.round((now.getTime() - answeredTime) / 1000))
+      duration = Math.max(0, Math.round((now.getTime() - answeredTime) / 1000))
+      updatePayload.duration_seconds = duration
     }
   } else if (rawStatus === 'MISSED' || rawStatus === 'UNANSWERED') {
     mappedStatus = 'missed'
@@ -207,4 +245,88 @@ async function processCallStatusUpdate(
 
   updatePayload.status = mappedStatus
   await db.from('whatsapp_calls').update(updatePayload).eq('id', callRow.id)
+
+  if (['terminated', 'missed', 'rejected', 'failed'].includes(mappedStatus)) {
+    await recordCallInConversation({
+      db,
+      accountId,
+      contactId: callRow.contact_id,
+      status: mappedStatus as 'terminated' | 'missed' | 'rejected' | 'failed',
+      durationSeconds: duration,
+      direction: callRow.direction as 'inbound' | 'outbound',
+    })
+  }
+}
+
+export async function recordCallInConversation({
+  db,
+  accountId,
+  contactId,
+  status,
+  durationSeconds,
+  direction,
+}: {
+  db: SupabaseClient
+  accountId: string
+  contactId: string | null
+  status: 'accepted' | 'terminated' | 'missed' | 'rejected' | 'failed'
+  durationSeconds: number
+  direction: 'inbound' | 'outbound'
+}) {
+  if (!contactId) return
+
+  // 1. Find conversation for this contact
+  const { data: conv } = await db
+    .from('conversations')
+    .select('id, user_id')
+    .eq('account_id', accountId)
+    .eq('contact_id', contactId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!conv) return
+
+  // Format label
+  let text = '📞 Voice call'
+  if (status === 'missed') {
+    text = direction === 'inbound' ? '📞 Missed voice call' : '📞 Unanswered voice call'
+  } else if (status === 'rejected') {
+    text = '📞 Declined voice call'
+  } else if (status === 'failed') {
+    text = '📞 Failed voice call'
+  } else if (durationSeconds > 0) {
+    const mins = Math.floor(durationSeconds / 60)
+    const secs = durationSeconds % 60
+    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+    text = `📞 Voice call (${timeStr})`
+  }
+
+  // Check if a call message for this call was inserted in the last 15s to avoid duplicate inserts
+  const { data: existingMsg } = await db
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conv.id)
+    .like('content_text', '📞%')
+    .gte('created_at', new Date(Date.now() - 15000).toISOString())
+    .limit(1)
+    .maybeSingle()
+
+  if (existingMsg) return
+
+  // Insert call message into conversation
+  await db.from('messages').insert({
+    conversation_id: conv.id,
+    sender_type: direction === 'inbound' ? 'customer' : 'agent',
+    content_type: 'text',
+    content_text: text,
+    status: 'delivered',
+  })
+
+  // Update conversation last message preview
+  await db.from('conversations').update({
+    last_message_text: text,
+    last_message_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq('id', conv.id)
 }

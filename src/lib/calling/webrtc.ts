@@ -47,9 +47,17 @@ export async function createWhatsAppPeerConnection(
   }
 
   if (onConnectionStateChange) {
-    pc.onconnectionstatechange = () => {
-      onConnectionStateChange(pc.connectionState)
+    const handleState = () => {
+      const conn = pc.connectionState
+      const ice = pc.iceConnectionState
+      if (['disconnected', 'failed', 'closed'].includes(conn) || ['disconnected', 'failed', 'closed'].includes(ice)) {
+        onConnectionStateChange('disconnected')
+      } else {
+        onConnectionStateChange(conn)
+      }
     }
+    pc.onconnectionstatechange = handleState
+    pc.oniceconnectionstatechange = handleState
   }
 
   return { pc, localStream }

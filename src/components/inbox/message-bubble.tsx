@@ -11,6 +11,10 @@ import {
   LayoutTemplate,
   CornerDownLeft,
   Sparkles,
+  PhoneIncoming,
+  PhoneOutgoing,
+  PhoneMissed,
+  PhoneOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -97,12 +101,17 @@ function MessageContent({
   const openMedia = onOpenMedia ? () => onOpenMedia(message.id) : undefined;
 
   switch (message.content_type) {
-    case "text":
+    case "text": {
+      const text = message.content_text || "";
+      if (text.startsWith("📞")) {
+        return <CallEventContent text={text} isAgent={isAgent} />;
+      }
       return (
         <p className="whitespace-pre-wrap break-words text-sm">
           {message.content_text}
         </p>
       );
+    }
 
     case "image":
       return (
@@ -331,6 +340,53 @@ export function MessageBubble({
           onToggle={onToggleReaction}
         />
       )}
+    </div>
+  );
+}
+
+
+function CallEventContent({ text, isAgent }: { text: string; isAgent: boolean }) {
+  const isMissed = text.includes("Missed") || text.includes("Unanswered");
+  const isDeclined = text.includes("Declined") || text.includes("Failed");
+  const cleanLabel = text.replace(/^📞\s*/, "");
+
+  return (
+    <div className="flex items-center gap-3 py-1 px-1">
+      <div
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+          isMissed
+            ? "bg-rose-500/20 text-rose-500"
+            : isDeclined
+              ? "bg-amber-500/20 text-amber-500"
+              : isAgent
+                ? "bg-primary-foreground/25 text-primary-foreground"
+                : "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+        )}
+      >
+        {isMissed ? (
+          <PhoneMissed className="h-4 w-4" />
+        ) : isDeclined ? (
+          <PhoneOff className="h-4 w-4" />
+        ) : isAgent ? (
+          <PhoneOutgoing className="h-4 w-4" />
+        ) : (
+          <PhoneIncoming className="h-4 w-4" />
+        )}
+      </div>
+      <div className="flex flex-col min-w-0 text-left">
+        <span className="text-sm font-semibold leading-tight">
+          {cleanLabel}
+        </span>
+        <span
+          className={cn(
+            "text-[11px] leading-tight mt-0.5 opacity-80",
+            isAgent ? "text-primary-foreground/80" : "text-muted-foreground"
+          )}
+        >
+          WhatsApp Voice Call
+        </span>
+      </div>
     </div>
   );
 }

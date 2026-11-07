@@ -6,6 +6,7 @@ import {
   initiateCall,
   type CallAction,
 } from '@/lib/whatsapp/meta-api'
+import { recordCallInConversation } from '@/lib/whatsapp/call-webhook'
 
 export async function GET(request: Request) {
   try {
@@ -183,16 +184,28 @@ export async function POST(request: Request) {
       updatePayload.status = 'terminated'
       updatePayload.ended_at = now.toISOString()
 
-      // Calculate duration
+      // Calculate duration and get contact info
       const { data: currentCall } = await supabase
         .from('whatsapp_calls')
-        .select('answered_at')
+        .select('answered_at, contact_id, direction')
         .eq('call_id', callId)
         .maybeSingle()
 
+      let duration = 0
       if (currentCall?.answered_at) {
-        const diff = Math.max(0, Math.round((now.getTime() - new Date(currentCall.answered_at).getTime()) / 1000))
-        updatePayload.duration_seconds = diff
+        duration = Math.max(0, Math.round((now.getTime() - new Date(currentCall.answered_at).getTime()) / 1000))
+        updatePayload.duration_seconds = duration
+      }
+
+      if (currentCall) {
+        await recordCallInConversation({
+          db: supabase,
+          accountId,
+          contactId: currentCall.contact_id,
+          status: 'terminated',
+          durationSeconds: duration,
+          direction: (currentCall.direction || 'outbound') as 'inbound' | 'outbound',
+        })
       }
     }
 
