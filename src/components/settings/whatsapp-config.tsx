@@ -13,6 +13,7 @@ import {
   Zap,
   AlertTriangle,
   RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -133,6 +134,44 @@ export function WhatsAppConfig() {
     subscribed_apps_at?: string | null;
   };
   const [coexLoading, setCoexLoading] = useState(false);
+  const [configId, setConfigId] = useState('');
+  const [showAdvancedCoex, setShowAdvancedCoex] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    (window as any).fbAsyncInit = function () {
+      try {
+        (window as any).FB.init({
+          appId: process.env.NEXT_PUBLIC_META_APP_ID || '846424185197562',
+          cookie: true,
+          xfbml: true,
+          version: 'v21.0',
+        });
+      } catch (e) {
+        console.warn('[fbAsyncInit] error:', e);
+      }
+    };
+
+    if ((window as any).FB) {
+      try {
+        (window as any).FB.init({
+          appId: process.env.NEXT_PUBLIC_META_APP_ID || '846424185197562',
+          cookie: true,
+          xfbml: true,
+          version: 'v21.0',
+        });
+      } catch {}
+    } else if (!document.getElementById('facebook-jssdk')) {
+      const script = document.createElement('script');
+      script.id = 'facebook-jssdk';
+      script.src = 'https://connect.facebook.net/en_US/sdk.js';
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      document.body.appendChild(script);
+    }
+  }, []);
 
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
@@ -522,82 +561,83 @@ export function WhatsAppConfig() {
   }
 
   async function handleLaunchCoexistenceSignup() {
-    setCoexLoading(true);
-
-    if (typeof window !== 'undefined' && !(window as any).FB) {
-      await new Promise<void>((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://connect.facebook.net/en_US/sdk.js';
-        script.async = true;
-        script.defer = true;
-        script.crossOrigin = 'anonymous';
-        script.onload = () => resolve();
-        script.onerror = () => resolve();
-        document.body.appendChild(script);
-      });
-    }
-
     const FB = (window as any).FB;
     if (!FB) {
-      setCoexLoading(false);
-      toast.error('Failed to load Facebook SDK. Please disable ad blockers.');
+      toast.error('Facebook SDK is still loading or was blocked by an ad-blocker. Please disable ad-blockers and refresh the page.');
       return;
     }
 
-    const appId = process.env.NEXT_PUBLIC_META_APP_ID || '846424185197562';
-    FB.init({
-      appId,
-      cookie: true,
-      xfbml: true,
-      version: 'v21.0',
-    });
+    setCoexLoading(true);
 
-    FB.login(
-      async (response: any) => {
-        if (response.authResponse?.code) {
-          const code = response.authResponse.code;
-          const loadingToast = toast.loading('Connecting WhatsApp Business App (Coexistence)...');
-          try {
-            const res = await fetch('/api/whatsapp/embedded-signup', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                code,
-                phone_number_id: phoneNumberId || undefined,
-                waba_id: wabaId || undefined,
-              }),
-            });
-            const json = await res.json();
-            toast.dismiss(loadingToast);
-            if (!res.ok || json.error) {
-              toast.error(json.error || 'Failed to complete connection');
-            } else {
-              toast.success('WhatsApp Business App (Coexistence) connected successfully!');
-              if (json.phone_number_id) setPhoneNumberId(json.phone_number_id);
-              if (json.waba_id) setWabaId(json.waba_id);
-              if (accountId) await fetchConfig(accountId);
-            }
-          } catch (err) {
-            toast.dismiss(loadingToast);
-            toast.error(err instanceof Error ? err.message : 'Connection failed');
-          } finally {
-            setCoexLoading(false);
-          }
-        } else {
-          setCoexLoading(false);
-        }
-      },
-      {
-        scope: 'whatsapp_business_messaging,whatsapp_business_management',
+    const safetyTimer = setTimeout(() => {
+      setCoexLoading(false);
+      toast.error('Login window timed out or was closed/blocked. If a popup did not open, please allow popups in your browser address bar.');
+    }, 25000);
+
+    try {
+      const loginParams: any = {
         response_type: 'code',
         override_default_response_type: true,
         extras: {
-          feature: 'whatsapp_embedded_signup',
+          setup: {},
           featureType: 'whatsapp_business_app_onboarding',
-          sessionInfoVersion: '2',
+          sessionInfoVersion: '3',
         },
+      };
+
+      if (configId.trim()) {
+        loginParams.config_id = configId.trim();
+      } else {
+        loginParams.scope = 'whatsapp_business_messaging,whatsapp_business_management';
       }
-    );
+
+      FB.login(
+        async (response: any) => {
+          clearTimeout(safetyTimer);
+          if (response.authResponse?.code) {
+            const code = response.authResponse.code;
+            const loadingToast = toast.loading('Connecting WhatsApp Business App (Coexistence)...');
+            try {
+              const res = await fetch('/api/whatsapp/embedded-signup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  code,
+                  phone_number_id: phoneNumberId || undefined,
+                  waba_id: wabaId || undefined,
+                }),
+              });
+              const json = await res.json();
+              toast.dismiss(loadingToast);
+              if (!res.ok || json.error) {
+                toast.error(json.error || 'Failed to complete connection');
+              } else {
+                toast.success('WhatsApp Business App (Coexistence) connected successfully!');
+                if (json.phone_number_id) setPhoneNumberId(json.phone_number_id);
+                if (json.waba_id) setWabaId(json.waba_id);
+                if (accountId) await fetchConfig(accountId);
+              }
+            } catch (err) {
+              toast.dismiss(loadingToast);
+              toast.error(err instanceof Error ? err.message : 'Connection failed');
+            } finally {
+              setCoexLoading(false);
+            }
+          } else {
+            setCoexLoading(false);
+            if (response.status === 'unknown') {
+              toast.info('Login cancelled or popup closed.');
+            }
+          }
+        },
+        loginParams
+      );
+    } catch (err) {
+      clearTimeout(safetyTimer);
+      setCoexLoading(false);
+      console.error('FB.login error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to launch login popup');
+    }
   }
 
   function handleCopyWebhookUrl() {
@@ -868,20 +908,68 @@ export function WhatsAppConfig() {
               No need to delete your mobile app or wipe chat history.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button
-              type="button"
-              onClick={handleLaunchCoexistenceSignup}
-              disabled={coexLoading || !canEditSettings}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-2 shadow-sm"
-            >
-              {coexLoading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Zap className="size-4" />
+          <CardContent className="space-y-4">
+            <div>
+              <Button
+                type="button"
+                onClick={handleLaunchCoexistenceSignup}
+                disabled={coexLoading || !canEditSettings}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-2 shadow-sm"
+              >
+                {coexLoading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Zap className="size-4" />
+                )}
+                Connect WhatsApp Business App (Coexistence)
+              </Button>
+            </div>
+
+            <div className="pt-2 border-t border-emerald-500/20">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedCoex(!showAdvancedCoex)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
+              >
+                <span>Meta Configuration ID (Optional / If Meta prompts for Config ID)</span>
+                <ChevronDown className={`size-3.5 transition-transform ${showAdvancedCoex ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showAdvancedCoex && (
+                <div className="space-y-3 pt-3 text-xs text-muted-foreground">
+                  <div className="space-y-1.5 max-w-md">
+                    <Label className="text-xs text-muted-foreground">
+                      Configuration ID
+                    </Label>
+                    <Input
+                      placeholder="e.g. 123456789012345"
+                      value={configId}
+                      onChange={(e) => setConfigId(e.target.value)}
+                      className="bg-muted border-border text-foreground placeholder:text-muted-foreground text-xs"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    If Meta prompts that a Configuration ID is required:
+                    <br />
+                    1. Open{' '}
+                    <a
+                      href="https://developers.facebook.com/apps/846424185197562/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline"
+                    >
+                      Meta Developer Portal
+                    </a>
+                    <br />
+                    2. Go to <strong>Facebook Login for Business &gt; Configurations</strong>
+                    <br />
+                    3. Click <strong>Create Configuration</strong> &gt; Select <strong>WhatsApp Embedded Signup</strong>
+                    <br />
+                    4. Copy the numeric <strong>Configuration ID</strong> and paste it here, then click the green Connect button above.
+                  </p>
+                </div>
               )}
-              Connect WhatsApp Business App (Coexistence)
-            </Button>
+            </div>
           </CardContent>
         </Card>
 
