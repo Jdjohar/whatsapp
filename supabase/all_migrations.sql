@@ -5458,60 +5458,30 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_calls_started_at ON whatsapp_calls(start
 ALTER TABLE whatsapp_calls ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if re-running
-DROP POLICY IF EXISTS "Account members can read calls" ON whatsapp_calls;
-DROP POLICY IF EXISTS "Account members can insert calls" ON whatsapp_calls;
-DROP POLICY IF EXISTS "Account members can update calls" ON whatsapp_calls;
+DROP POLICY IF EXISTS whatsapp_calls_select ON whatsapp_calls;
+DROP POLICY IF EXISTS whatsapp_calls_insert ON whatsapp_calls;
+DROP POLICY IF EXISTS whatsapp_calls_update ON whatsapp_calls;
+DROP POLICY IF EXISTS whatsapp_calls_delete ON whatsapp_calls;
 
--- Account members can view all calls for their account
-CREATE POLICY "Account members can read calls" ON whatsapp_calls
+-- Account members (viewer+) can view all calls for their account
+CREATE POLICY whatsapp_calls_select ON whatsapp_calls
   FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_members.account_id = whatsapp_calls.account_id
-        AND account_members.user_id = auth.uid()
-    )
-    OR
-    EXISTS (
-      SELECT 1 FROM accounts
-      WHERE accounts.id = whatsapp_calls.account_id
-        AND accounts.owner_user_id = auth.uid()
-    )
-  );
+  USING (is_account_member(account_id));
 
--- Account members (Agent+) can insert calls
-CREATE POLICY "Account members can insert calls" ON whatsapp_calls
+-- Account members (agent+) can insert calls
+CREATE POLICY whatsapp_calls_insert ON whatsapp_calls
   FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_members.account_id = whatsapp_calls.account_id
-        AND account_members.user_id = auth.uid()
-    )
-    OR
-    EXISTS (
-      SELECT 1 FROM accounts
-      WHERE accounts.id = whatsapp_calls.account_id
-        AND accounts.owner_user_id = auth.uid()
-    )
-  );
+  WITH CHECK (is_account_member(account_id, 'agent'));
 
--- Account members can update calls (e.g. answer, terminate, duration)
-CREATE POLICY "Account members can update calls" ON whatsapp_calls
+-- Account members (agent+) can update calls
+CREATE POLICY whatsapp_calls_update ON whatsapp_calls
   FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_members.account_id = whatsapp_calls.account_id
-        AND account_members.user_id = auth.uid()
-    )
-    OR
-    EXISTS (
-      SELECT 1 FROM accounts
-      WHERE accounts.id = whatsapp_calls.account_id
-        AND accounts.owner_user_id = auth.uid()
-    )
-  );
+  USING (is_account_member(account_id, 'agent'));
+
+-- Account admins can delete calls
+CREATE POLICY whatsapp_calls_delete ON whatsapp_calls
+  FOR DELETE
+  USING (is_account_member(account_id, 'admin'));
 
 -- Enable Supabase Realtime for whatsapp_calls table
 DO $$
