@@ -1223,3 +1223,104 @@ export async function downloadMedia(
   const buffer = Buffer.from(await response.arrayBuffer())
   return { buffer, contentType }
 }
+
+
+// ============================================================
+// WhatsApp Business Calling API (VoIP / WebRTC)
+// ============================================================
+
+export type CallAction = 'pre_accept' | 'accept' | 'reject' | 'terminate'
+
+export interface ExecuteCallActionArgs {
+  phoneNumberId: string
+  accessToken: string
+  callId: string
+  action: CallAction
+  session?: {
+    sdp_type: 'answer' | 'offer'
+    sdp: string
+  }
+}
+
+/**
+ * Execute a signaling action on an active or incoming WhatsApp call:
+ * - 'pre_accept': Reserve/pre-accept the incoming call
+ * - 'accept': Bridge the call with agent's WebRTC SDP answer
+ * - 'reject': Decline the incoming call
+ * - 'terminate': Hang up an active connected call
+ */
+export async function executeCallAction(
+  args: ExecuteCallActionArgs
+): Promise<{ success: boolean; data?: unknown }> {
+  const { phoneNumberId, accessToken, callId, action, session } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/calls`
+
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    call_id: callId,
+    action,
+  }
+
+  if (session) {
+    payload.session = session
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Call action '${action}' failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return { success: true, data }
+}
+
+export interface InitiateCallArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  session: {
+    sdp_type: 'offer'
+    sdp: string
+  }
+}
+
+/**
+ * Initiate an outbound WhatsApp voice call from the CRM to a contact.
+ */
+export async function initiateCall(
+  args: InitiateCallArgs
+): Promise<{ callId: string; data?: unknown }> {
+  const { phoneNumberId, accessToken, to, session } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/calls`
+
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    ...recipientFields(to),
+    session,
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Initiate call failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const callId = data?.calls?.[0]?.id || data?.call_id || data?.id
+  return { callId, data }
+}

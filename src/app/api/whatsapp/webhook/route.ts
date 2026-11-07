@@ -22,6 +22,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { handleCallWebhookChange } from '@/lib/whatsapp/call-webhook'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -276,6 +277,19 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       // `entry.id` is the WABA id for template events — the handler
       // needs it to resolve the owning account when the template has
       // no local row yet (#534).
+      const val = change.value as unknown as { calls?: unknown[]; statuses?: Array<{ type?: string; id?: string }> }
+      if (
+        change.field === 'calls' ||
+        Boolean(val?.calls?.length) ||
+        Boolean(val?.statuses?.some((s) => s.type === 'call' || s.id?.startsWith('wacid.')))
+      ) {
+        await handleCallWebhookChange(
+          change as any,
+          supabaseAdmin(),
+        )
+        continue
+      }
+
       if (isTemplateWebhookField(change.field)) {
         await handleTemplateWebhookChange(
           {

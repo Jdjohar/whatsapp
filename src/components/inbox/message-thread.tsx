@@ -31,6 +31,8 @@ import {
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
+import { useWhatsAppCalling } from "@/context/calling-context";
+import { Phone } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -170,6 +172,7 @@ export function MessageThread({
   const tQuote = useTranslations("Inbox.replyQuote");
 
   const { user } = useAuth();
+  const { startOutboundCall } = useWhatsAppCalling();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -942,6 +945,18 @@ export function MessageThread({
         </div>
 
         <div className="flex items-center gap-2">
+          {contact?.phone && (
+            <button
+              type="button"
+              onClick={() => startOutboundCall(contact.phone, contact.id, contact.name || undefined)}
+              aria-label="Call on WhatsApp"
+              title={`Call ${contact.name || contact.phone} on WhatsApp`}
+              className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 text-xs font-medium transition-colors"
+            >
+              <Phone className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Call</span>
+            </button>
+          )}
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just

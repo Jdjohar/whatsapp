@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, Deal, ContactNote, Tag, WhatsAppCall } from "@/types";
+import { useWhatsAppCalling } from "@/context/calling-context";
+import { PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed } from "lucide-react";
 import {
   Phone,
   Mail,
@@ -37,6 +39,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const { startOutboundCall } = useWhatsAppCalling();
+  const [calls, setCalls] = useState<WhatsAppCall[]>([]);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -44,7 +48,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     const supabase = createClient();
 
     // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    const [callsRes, dealsRes, notesRes, tagsRes] = await Promise.all([
+      supabase
+        .from("whatsapp_calls")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .order("started_at", { ascending: false })
+        .limit(5),
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -63,6 +73,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
+    if (callsRes?.data) setCalls(callsRes.data as WhatsAppCall[]);
     if (tagsRes.data) {
       const mapped = tagsRes.data
         .filter((ct: Record<string, unknown>) => ct.tags)

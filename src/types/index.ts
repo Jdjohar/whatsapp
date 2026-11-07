@@ -699,3 +699,38 @@ export interface QuickReply {
   created_at: string;
   updated_at: string;
 }
+
+
+// ============================================================
+// WhatsApp Calls (VoIP / WebRTC Calling API)
+// ============================================================
+
+export type CallDirection = 'inbound' | 'outbound';
+export type CallStatus =
+  | 'ringing'
+  | 'accepted'
+  | 'rejected'
+  | 'terminated'
+  | 'missed'
+  | 'failed';
+
+export interface WhatsAppCall {
+  id: string;
+  account_id: string;
+  contact_id?: string | null;
+  call_id: string;
+  direction: CallDirection;
+  status: CallStatus;
+  from_phone: string;
+  to_phone: string;
+  started_at: string;
+  answered_at?: string | null;
+  ended_at?: string | null;
+  duration_seconds: number;
+  sdp_offer?: string | null;
+  sdp_answer?: string | null;
+  agent_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  contact?: Contact | null;
+}
