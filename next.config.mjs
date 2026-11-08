@@ -6,6 +6,7 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
  * Baseline security headers applied to every response.
  */
 const SECURITY_HEADERS = [
+  { key: "Cross-Origin-Opener-Policy", value: "unsafe-none" },
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
