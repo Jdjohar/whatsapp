@@ -174,6 +174,21 @@ export function WhatsAppConfig() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const errorMsg = params.get('error_description') || params.get('error');
+
+    if (errorMsg) {
+      toast.error(`Meta Login Error: ${errorMsg}`);
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (code) {
+      window.history.replaceState({}, '', window.location.pathname);
+      void handleProcessCoexAuth({ authResponse: { code } });
+    }
+  }, []);
+
+  useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (
         event.origin !== 'https://www.facebook.com' &&
@@ -603,6 +618,14 @@ export function WhatsAppConfig() {
     }
   }
 
+  function handleLaunchDirectOAuth() {
+    const appId = process.env.NEXT_PUBLIC_META_APP_ID || '846424185197562';
+    const activeConfigId = configId.trim() || '1823329985668273';
+    const redirectUri = encodeURIComponent(`${window.location.origin}/settings`);
+    const directUrl = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&config_id=${activeConfigId}&response_type=code&redirect_uri=${redirectUri}`;
+    window.open(directUrl, '_blank');
+  }
+
   async function handleLaunchCoexistenceSignup() {
     const FB = (window as any).FB;
     if (!FB) {
@@ -919,19 +942,31 @@ export function WhatsAppConfig() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Button
-                type="button"
-                onClick={handleLaunchCoexistenceSignup}
-                disabled={coexLoading || !canEditSettings}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-2 shadow-sm"
-              >
-                {coexLoading ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Zap className="size-4" />
-                )}
-                Connect WhatsApp Business App (Coexistence)
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  onClick={handleLaunchCoexistenceSignup}
+                  disabled={coexLoading || !canEditSettings}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-2 shadow-sm"
+                >
+                  {coexLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Zap className="size-4" />
+                  )}
+                  Connect via Popup
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleLaunchDirectOAuth}
+                  disabled={coexLoading || !canEditSettings}
+                  className="border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-400 font-medium gap-2 text-xs"
+                >
+                  <ExternalLink className="size-3.5" />
+                  Open Meta Login in New Tab
+                </Button>
+              </div>
             </div>
 
             <div className="pt-2 border-t border-emerald-500/20">
