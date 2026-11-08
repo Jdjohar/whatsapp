@@ -592,8 +592,13 @@ export function WhatsAppConfig() {
       }
     } else {
       setCoexLoading(false);
-      if (response?.status === 'unknown') {
-        toast.info('Login cancelled or popup closed.');
+      console.log('[FB.login] full response:', response);
+      if (response?.error_message) {
+        toast.error(`Meta: ${response.error_message}`);
+      } else if (response?.status === 'unknown') {
+        toast.info('Login cancelled or popup closed. Please make sure "Login with JavaScript SDK" is enabled in Facebook Login Settings.');
+      } else {
+        toast.info('Login not completed.');
       }
     }
   }
